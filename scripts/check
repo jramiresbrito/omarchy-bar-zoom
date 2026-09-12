@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Repository checks that run without Omarchy installed, so CI can gate a PR.
+# `omarchy plugin validate` remains the authority on a real machine; this covers
+# what can be verified anywhere.
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+status=0
+fail() {
+  echo "FAIL: $*" >&2
+  status=1
+}
+ok() { echo "  ok: $*"; }
+
+echo "Manifests"
+for manifest in manifest.json; do
+  plugin="."
+  jq -e . "$manifest" >/dev/null 2>&1 || {
+    fail "$manifest is not valid JSON"
+    continue
+  }
+  for field in schemaVersion id name version kinds entryPoints; do
+    jq -e --arg f "$field" 'has($f)' "$manifest" >/dev/null || fail "$manifest missing '$field'"
+  done
+  jq -e '.schemaVersion == 1' "$manifest" >/dev/null || fail "$manifest schemaVersion must be the number 1"
+  id=$(jq -r '.id' "$manifest")
+  [[ $id == omarchy.* ]] && fail "$manifest uses the reserved omarchy.* namespace"
+  [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail "$manifest has an invalid id: $id"
+
+  # Every declared kind needs the entry point the shell loads it from, and every
+  # entry point must be a safe relative path that exists.
+  while IFS=$'\t' read -r kind key; do
+    jq -e --arg k "$kind" '(.kinds | index($k)) != null' "$manifest" >/dev/null || continue
+    path=$(jq -r --arg key "$key" '.entryPoints[$key] // ""' "$manifest")
+    [[ -n $path ]] || fail "$manifest declares kind '$kind' without entryPoints.$key"
+    [[ $path == /* || $path == *..* ]] && fail "$manifest entry point is not a safe relative path: $path"
+    [[ -f "$plugin/$path" ]] || fail "$manifest entry point missing on disk: $plugin/$path"
+  done <<<$'bar\tbar\nbar-widget\tbarWidget\nmenu\tmenu\noverlay\toverlay\npanel\tpanel\nservice\tservice'
+  ok "$manifest"
+done
+
+echo "No symlinks (the shell refuses them inside a plugin folder)"
+links=$(find . -path ./.git -prune -o -type l -print)
+[[ -z $links ]] || fail "symlinks found: $links"
+[[ -z $links ]] && ok "none"
+
+echo "Shell scripts parse"
+while IFS= read -r script; do
+  bash -n "$script" || fail "$script has a syntax error"
+  ok "$script"
+done < <(find . -path ./.git -prune -o -type f \( -name "*.sh" -o -path "*/bin/*" -o -path "./scripts/*" -o -path "./tools/*" \) -print | grep -v '\.md$')
+
+echo "Images referenced by the docs exist"
+while IFS= read -r ref; do
+  [[ -f $ref ]] || fail "referenced image missing: $ref"
+done < <(grep -rhoE '\]\(([^)]*docs/screenshots/[^)]+)\)' --include="*.md" . |
+  sed -E 's/^\]\(//; s/\)$//; s|^\.\./||' | sort -u)
+ok "checked"
+
+exit $status

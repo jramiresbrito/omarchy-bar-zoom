@@ -1,0 +1,12 @@
+This project contains code derived from Omarchy (https://omarchy.org/),
+Copyright (c) Omarchy contributors, licensed under the MIT License.
+
+The plugin began as copies of two Omarchy 4.0.3 components, taken with
+`omarchy plugin clone`, and carries local modifications:
+
+  Bar.qml, BarModel.js, widgets/, indicators/   from Omarchy's `omarchy.bar`
+  Panel.qml, Model.js                           from Omarchy's `omarchy.monitor`
+
+The modifications are listed in docs/limitations.md under "Forks, not
+extensions". Everything not listed there is upstream Omarchy code, unchanged and
+redistributed under the same MIT terms.

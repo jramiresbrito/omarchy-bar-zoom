@@ -1,0 +1,84 @@
+#!/bin/bash
+# Set the scale of the focused monitor and keep it, one output at a time.
+#
+# Omarchy's own omarchy-hyprland-monitor-scaling applies the scale at runtime
+# and then persists it by rewriting the catch-all rule in monitors.lua, which
+# governs every monitor at once -- so changing one display moves the other, and
+# a per-output config makes the change roll back on the next reload instead.
+# This writes the scale onto the focused output's own rule, so it persists and
+# leaves every other monitor alone.
+#
+# Usage: monitor-scale up|down|<scale>
+set -euo pipefail
+
+MONITORS_LUA="$HOME/.config/hypr/monitors.lua"
+SCALES="1 1.25 1.6 2 3 4"
+
+info=$(hyprctl -j monitors | jq -e -c '.[] | select(.focused == true)')
+name=$(jq -r '.name' <<<"$info")
+width=$(jq -r '.width' <<<"$info")
+height=$(jq -r '.height' <<<"$info")
+refresh=$(jq -r '.refreshRate' <<<"$info")
+current=$(jq -r '.scale' <<<"$info")
+
+# The name is interpolated into a sed pattern and a Lua line below, so allow
+# only what a connector name can actually be.
+[[ $name =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "monitor-scale: refusing unsafe monitor name" >&2
+  exit 1
+}
+
+# Hyprland only accepts scales where the mode divides into whole logical pixels
+# (in 1/120 steps), so round the request up to the nearest clean value. Same
+# rule Omarchy applies, so the panel's presets land where it expects.
+awk_clean='
+  function gcd(a, b, t) { while (b) { t = a % b; a = b; b = t } return a }
+  function clean(s,   g, k) {
+    g = gcd(width * 120, height * 120)
+    k = int(s * 120 + 0.5)
+    if (k > g) k = g
+    while (g % k != 0) k++
+    return k / 120
+  }'
+
+case "${1:-}" in
+up | down)
+  requested=$(awk -v cur="$current" -v list="$SCALES" -v dir="$1" \
+    -v width="$width" -v height="$height" "$awk_clean"'
+    BEGIN {
+      n = split(list, p, " ")
+      # Snap to the nearest reachable scale first: Hyprland reports floats, so
+      # comparing against the raw presets can get stuck between two of them.
+      best = 1; bd = 1e9
+      for (i = 1; i <= n; i++) {
+        e = clean(p[i]); d = cur - e; if (d < 0) d = -d
+        if (d < bd) { bd = d; best = i }
+      }
+      i = (dir == "up") ? (best < n ? best + 1 : n) : (best > 1 ? best - 1 : 1)
+      printf "%g\n", p[i]
+    }')
+  ;;
+"" | -h | --help)
+  echo "usage: monitor-scale up|down|<scale>" >&2
+  exit 1
+  ;;
+*)
+  requested=$1
+  [[ $requested =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    echo "monitor-scale: '$requested' is not a scale" >&2
+    exit 1
+  }
+  ;;
+esac
+
+new=$(awk -v s="$requested" -v width="$width" -v height="$height" "$awk_clean"'
+  BEGIN { printf "%g\n", clean(s) }')
+
+if grep -q "output = \"$name\"" "$MONITORS_LUA"; then
+  sed -i -E "s|(hl\.monitor\(\{ output = \"$name\",.*scale = )[0-9.]+( \}\))|\1$new\2|" "$MONITORS_LUA"
+else
+  printf 'hl.monitor({ output = "%s", mode = "%sx%s@%s", position = "auto", scale = %s })\n' \
+    "$name" "$width" "$height" "$refresh" "$new" >>"$MONITORS_LUA"
+fi
+
+hyprctl reload >/dev/null

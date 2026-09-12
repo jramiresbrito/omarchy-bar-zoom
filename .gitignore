@@ -1,0 +1,8 @@
+# Editor and OS noise
+*.swp
+*~
+.DS_Store
+
+# Screenshot working files
+docs/screenshots/.raw-*.png
+docs/screenshots/.crop-*.png

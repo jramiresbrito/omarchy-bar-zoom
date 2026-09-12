@@ -1,0 +1,60 @@
+#!/bin/bash
+# Zoom the bar on the focused monitor only, by writing bar.scaleByMonitor in
+# shell.json. The cloned bar plugin lays the bar out at its natural size and
+# scales the whole panel, so text and icons magnify together instead of the bar
+# just gaining padding. Style is a singleton, so this is the only way the size
+# can differ per screen.
+#
+# Usage: bar-zoom up|down|reset|<factor>
+set -euo pipefail
+
+CONFIG="$HOME/.config/omarchy/shell.json"
+STEPS="1 1.2 1.4 1.6 1.8 2"
+
+name=$(hyprctl -j monitors | jq -r '.[] | select(.focused == true) | .name')
+[[ $name =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "bar-zoom: refusing unsafe monitor name" >&2
+  exit 1
+}
+
+arg="${1:-}"
+case "$arg" in
+up | down | reset) ;;
+*)
+  [[ $arg =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    echo "usage: bar-zoom up|down|reset|<factor>" >&2
+    exit 1
+  }
+  ;;
+esac
+
+python3 - "$CONFIG" "$name" "$arg" "$STEPS" <<'PY'
+import json, pathlib, sys
+
+path, monitor, arg, steps = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], [float(s) for s in sys.argv[4].split()]
+cfg = json.loads(path.read_text())
+bar = cfg.setdefault("bar", {})
+by_monitor = bar.setdefault("scaleByMonitor", {})
+current = float(by_monitor.get(monitor, 1.0))
+
+if arg == "reset":
+    by_monitor.pop(monitor, None)
+else:
+    if arg in ("up", "down"):
+        # Snap to the nearest step first, so a hand-edited value still steps sanely.
+        i = min(range(len(steps)), key=lambda n: abs(steps[n] - current))
+        i = min(i + 1, len(steps) - 1) if arg == "up" else max(i - 1, 0)
+        value = steps[i]
+    else:
+        value = float(arg)
+    # 1.0 is the default, so store nothing rather than a redundant entry.
+    if abs(value - 1.0) < 1e-9:
+        by_monitor.pop(monitor, None)
+    else:
+        by_monitor[monitor] = round(value, 3)
+
+if not by_monitor:
+    bar.pop("scaleByMonitor", None)
+path.write_text(json.dumps(cfg, indent=2) + "\n")
+print(f"{monitor}: bar zoom {by_monitor.get(monitor, 1.0)}")
+PY
