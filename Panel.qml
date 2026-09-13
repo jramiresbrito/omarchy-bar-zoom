@@ -49,9 +49,10 @@ Panel {
   readonly property var barZoomValues: ["1", "1.2", "1.4", "1.6", "1.8", "2"]
   property real barZoom: 1.0
 
-  // The helper ships with the plugin, so resolve it relative to this file
+  // The helpers ship with the plugin, so resolve them relative to this file
   // instead of depending on anything being on the user's PATH.
   readonly property string barZoomBin: String(Qt.resolvedUrl("bin/bar-zoom")).replace(/^file:\/\//, "")
+  readonly property string monitorScaleBin: String(Qt.resolvedUrl("bin/monitor-scale")).replace(/^file:\/\//, "")
   readonly property var scaleValues: {
     for (var i = 0; i < displays.length; i++) {
       var display = displays[i]
@@ -336,8 +337,13 @@ Panel {
     if (!actionProc.running) actionProc.running = true
   }
 
+  // monitor-scale writes the scale onto the focused output's own rule in
+  // monitors.lua, so a per-monitor scale survives a reload the way BAR SIZE
+  // does. On a stock monitors.lua it hands back to Omarchy's own command, so
+  // this row behaves exactly as before for anyone who has not split their
+  // config into per-output rules.
   function setScale(scale) {
-    actionProc.command = ["bash", "-c", "omarchy-hyprland-monitor-scaling " + scale]
+    actionProc.command = [root.monitorScaleBin, String(scale)]
     if (!actionProc.running) actionProc.running = true
   }
 

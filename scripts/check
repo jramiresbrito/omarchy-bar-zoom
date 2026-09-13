@@ -48,7 +48,7 @@ echo "Shell scripts parse"
 while IFS= read -r script; do
   bash -n "$script" || fail "$script has a syntax error"
   ok "$script"
-done < <(find . -path ./.git -prune -o -type f \( -name "*.sh" -o -path "*/bin/*" -o -path "./scripts/*" -o -path "./tools/*" \) -print | grep -v '\.md$')
+done < <(find . -path ./.git -prune -o -type f \( -name "*.sh" -o -path "*/bin/*" -o -path "./scripts/*" \) -print | grep -v '\.md$')
 
 echo "Images referenced by the docs exist"
 while IFS= read -r ref; do

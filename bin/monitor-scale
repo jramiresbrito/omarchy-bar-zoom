@@ -1,12 +1,21 @@
 #!/bin/bash
 # Set the scale of the focused monitor and keep it, one output at a time.
 #
-# Omarchy's own omarchy-hyprland-monitor-scaling applies the scale at runtime
-# and then persists it by rewriting the catch-all rule in monitors.lua, which
-# governs every monitor at once -- so changing one display moves the other, and
-# a per-output config makes the change roll back on the next reload instead.
-# This writes the scale onto the focused output's own rule, so it persists and
-# leaves every other monitor alone.
+# Omarchy's own omarchy-hyprland-monitor-scaling applies the scale at runtime and
+# then persists it by rewriting whichever desktop-wide setting monitors.lua
+# carries -- the `omarchy_monitor_scale` variable, or the catch-all rule
+# (output = "") -- both of which govern every monitor at once. So on a per-output
+# config there is nothing for it to write and the change rolls back on the next
+# reload.
+#
+# This writes the scale onto the focused output's own rule instead, so it
+# persists and leaves every other monitor alone. On a stock monitors.lua, where
+# there is no per-output rule to edit, it hands straight back to Omarchy's own
+# command so stock setups keep stock behaviour.
+#
+# GDK_SCALE is deliberately left alone. It is a single global value that cannot
+# describe two monitors at different scales, so whatever the user has pinned it
+# to stays pinned.
 #
 # Usage: monitor-scale up|down|<scale>
 set -euo pipefail
@@ -74,8 +83,19 @@ esac
 new=$(awk -v s="$requested" -v width="$width" -v height="$height" "$awk_clean"'
   BEGIN { printf "%g\n", clean(s) }')
 
-if grep -q "output = \"$name\"" "$MONITORS_LUA"; then
+# A rule for this output: rewrite the scale on it and keep everything else.
+if [[ -f $MONITORS_LUA ]] && grep -q "output = \"$name\"" "$MONITORS_LUA"; then
   sed -i -E "s|(hl\.monitor\(\{ output = \"$name\",.*scale = )[0-9.]+( \}\))|\1$new\2|" "$MONITORS_LUA"
+
+# No per-output rule anywhere, but the stock desktop-wide settings are present:
+# this is an unmodified monitors.lua, so let Omarchy's own command handle it
+# rather than converting the user's config behind their back.
+elif [[ ! -f $MONITORS_LUA ]] ||
+  grep -q '^local omarchy_monitor_scale = ' "$MONITORS_LUA" ||
+  grep -Eq '^hl\.monitor\(\{ output = "", ' "$MONITORS_LUA"; then
+  exec omarchy-hyprland-monitor-scaling "$@"
+
+# Per-output config that has no rule for this monitor yet: add one.
 else
   printf 'hl.monitor({ output = "%s", mode = "%sx%s@%s", position = "auto", scale = %s })\n' \
     "$name" "$width" "$height" "$refresh" "$new" >>"$MONITORS_LUA"

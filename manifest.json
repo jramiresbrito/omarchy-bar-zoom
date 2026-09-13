@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.jramiresbrito.bar-zoom",
   "name": "Bar Zoom",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Joao Victor Ramires Guimaraes Brito",
   "license": "MIT",
-  "description": "Size the Omarchy bar per monitor. Replaces the bar with one that renders at a per-display zoom factor, and adds a BAR SIZE row to the Display panel to set it.",
+  "description": "Size the Omarchy bar per monitor, and make the Hyprland monitor scale persist per output. Replaces the bar with one that renders at a per-display zoom factor, and gives the Display panel a BAR SIZE row plus a SCALE row that writes each output's own rule.",
   "repository": "https://github.com/jramiresbrito/omarchy-bar-zoom",
   "kinds": ["bar", "bar-widget"],
   "entryPoints": {

@@ -1,6 +1,6 @@
 # Bar Zoom
 
-**Size the Omarchy bar per monitor.**
+**Size the Omarchy bar per monitor — and make the monitor scale stick, per output.**
 
 On a mixed-DPI setup the Omarchy bar is sized once for the whole desktop. A 13"
 4K laptop panel and a 1080p external monitor get the same bar, so it is either
@@ -65,6 +65,47 @@ happily, and you can come back to it once you have picked one.
 
 Mouse and keyboard both work: `h` / `l` walk the row, Enter applies.
 
+### The SCALE row, made per-monitor
+
+The **SCALE** row above it now persists per output too. Omarchy's own scaling
+applies a scale to the focused monitor at runtime, but saves it by rewriting a
+desktop-wide setting in `monitors.lua` — the `omarchy_monitor_scale` variable, or
+the catch-all `output = ""` rule. Both govern every monitor at once, so on a
+config split into one rule per output there is nothing to write and the change
+rolls back on the next reload.
+
+This plugin points that row at its own `bin/monitor-scale`, which writes the
+scale onto the focused output's own rule. Split your `monitors.lua` into one rule
+per output, each on a single line in this shape:
+
+```lua
+hl.monitor({ output = "eDP-1", mode = "3840x2400@59.994", position = "auto", scale = 2 })
+hl.monitor({ output = "DP-7", mode = "1920x1080@165.00301", position = "auto", scale = 1 })
+```
+
+On a stock `monitors.lua` there is no per-output rule to edit, so the helper
+hands straight back to `omarchy-hyprland-monitor-scaling` and the row behaves
+exactly as it always did. `GDK_SCALE` is deliberately left alone: it is a single
+global value that cannot describe two monitors at different scales.
+
+If you would rather drive it from the keyboard, bind it over Omarchy's own
+scaling keys:
+
+```lua
+hl.unbind("SUPER + SLASH")
+hl.unbind("SUPER + ALT + SLASH")
+o.bind("SUPER + SLASH", "Monitor scaling up", "monitor-scale up")
+o.bind("SUPER + ALT + SLASH", "Monitor scaling down", "monitor-scale down")
+```
+
+That needs the helper on your `PATH`; the panel does not, since it resolves both
+helpers inside the plugin folder.
+
+```bash
+install -Dm755 ~/.config/omarchy/plugins/io.github.jramiresbrito.bar-zoom/bin/monitor-scale \
+  ~/.local/bin/monitor-scale
+```
+
 ### Without the panel
 
 The panel is a convenience; the bar reads its factors straight from
@@ -85,12 +126,15 @@ The shell watches that file, so the bar resizes as soon as you save. A monitor
 with no entry renders at `1.0`. Because `1x` is the default it is stored as *no
 entry* rather than `1.0`, so a monitor you have never zoomed reads as `1x`.
 
-The bundled helper does the same thing from a shell:
+The bundled helpers do the same things from a shell:
 
 ```bash
 bin/bar-zoom up        # step the focused monitor up
 bin/bar-zoom 1.4       # set an exact factor
 bin/bar-zoom reset     # back to stock for that monitor
+
+bin/monitor-scale up   # step the focused monitor's scale up
+bin/monitor-scale 1.6  # set an exact scale, rounded to one Hyprland accepts
 ```
 
 ## Requirements
@@ -158,17 +202,13 @@ Put it back where it was:
 omarchy bar put omarchy.monitor --section right
 ```
 
-If you also installed [`tools/monitor-scale`](tools/README.md), it is a
-standalone script with no connection to the plugin — delete
-`~/.local/bin/monitor-scale` and drop the two `o.bind` lines it added to
+**Your per-output `monitors.lua` rules and the scales already written into
+them.** Removing the plugin does not revert them; they are ordinary Hyprland
+config and keep working. Omarchy's stock Display panel will not be able to change
+them per output any more, though, so if you want the stock behaviour back,
+restore the catch-all rule. If you copied `monitor-scale` onto your `PATH` and
+bound it, delete `~/.local/bin/monitor-scale` and drop those `o.bind` lines from
 `~/.config/hypr/bindings.lua`.
-
-## Also in this repository
-
-[`tools/monitor-scale`](tools/README.md) — an optional, standalone script for a
-neighbouring problem: setting the Hyprland scale of the focused monitor so it
-persists *per output*, rather than through Omarchy's desktop-wide catch-all rule.
-Not part of the plugin and not loaded by the shell.
 
 ## Contributing
 
