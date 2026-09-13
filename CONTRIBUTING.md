@@ -25,8 +25,8 @@ what CI runs:
 Install from your working copy rather than from git, so you can iterate:
 
 ```bash
-cp -r . ~/.config/omarchy/plugins/jramiresbrito.bar-zoom
-omarchy plugin enable jramiresbrito.bar-zoom
+cp -r . ~/.config/omarchy/plugins/io.github.jramiresbrito.bar-zoom
+omarchy plugin enable io.github.jramiresbrito.bar-zoom
 ```
 
 Saving a file under `~/.config/omarchy/plugins/` reloads plugin code

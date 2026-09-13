@@ -36,14 +36,25 @@ all it takes. Enabling it switches the shell to this bar and offers to place its
 Display widget; put it where the stock one lives:
 
 ```bash
-omarchy bar move jramiresbrito.bar-zoom --section right
+omarchy bar move io.github.jramiresbrito.bar-zoom --section right
 ```
 
-Then remove Omarchy's own Display widget so you are not carrying both:
+Then drop Omarchy's own Display widget so you are not carrying two of them.
+`omarchy bar` has no remove verb — taking a widget out of the bar is an edit to
+the layout in `~/.config/omarchy/shell.json`:
 
 ```bash
-omarchy bar move omarchy.monitor --section right   # if you want to compare first
+jq '.bar.layout |= map_values(map(select(.id != "omarchy.monitor")))' \
+  ~/.config/omarchy/shell.json > /tmp/shell.json &&
+  mv /tmp/shell.json ~/.config/omarchy/shell.json
 ```
+
+Or open that file and delete the `{ "id": "omarchy.monitor" }` entry from
+whichever `bar.layout` section holds it. Either way the shell hot-reloads on
+save; no restart needed.
+
+Want to compare the two side by side first? Skip this step — both render
+happily, and you can come back to it once you have picked one.
 
 ## Use
 
@@ -116,14 +127,41 @@ scale-1 monitors at 1x.** Full detail in [docs/limitations.md](docs/limitations.
 bar or widget rather than patching a property of a built-in, so this plugin is a
 fork of Omarchy 4.0.3's bar and Display panel. While it is enabled, upstream
 changes to those two components do not reach you. Removing it restores them
-immediately:
-
-```bash
-omarchy plugin remove jramiresbrito.bar-zoom
-```
+immediately — see [Remove](#remove).
 
 **Popup anchoring on a zoomed monitor** is computed in unscaled coordinates and
 can sit slightly off.
+
+## Remove
+
+```bash
+omarchy plugin remove io.github.jramiresbrito.bar-zoom
+```
+
+That restores Omarchy's stock bar and drops this plugin's Display widget out of
+the layout with it. Two things it deliberately leaves behind, both harmless and
+each a single command to clear:
+
+**Your zoom factors.** `bar.scaleByMonitor` stays in
+`~/.config/omarchy/shell.json`. The stock bar ignores it, and it is still there
+if you reinstall. To clear it:
+
+```bash
+jq 'del(.bar.scaleByMonitor)' ~/.config/omarchy/shell.json > /tmp/shell.json &&
+  mv /tmp/shell.json ~/.config/omarchy/shell.json
+```
+
+**Omarchy's own Display widget**, if you removed it when you installed this one.
+Put it back where it was:
+
+```bash
+omarchy bar put omarchy.monitor --section right
+```
+
+If you also installed [`tools/monitor-scale`](tools/README.md), it is a
+standalone script with no connection to the plugin — delete
+`~/.local/bin/monitor-scale` and drop the two `o.bind` lines it added to
+`~/.config/hypr/bindings.lua`.
 
 ## Also in this repository
 
