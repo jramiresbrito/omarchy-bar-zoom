@@ -210,6 +210,41 @@ restore the catch-all rule. If you copied `monitor-scale` onto your `PATH` and
 bound it, delete `~/.local/bin/monitor-scale` and drop those `o.bind` lines from
 `~/.config/hypr/bindings.lua`.
 
+## Keeping up with Omarchy
+
+This plugin is a fork of two built-ins, so an Omarchy release can change the
+code underneath it. Rather than re-merging by hand, the fork is expressed as two
+small patches over the packaged sources, and the vendored files are regenerated
+from whatever Omarchy is installed:
+
+| file | how it is produced |
+|---|---|
+| `Bar.qml` | packaged `bar/Bar.qml` + `patches/bar.qml.patch` |
+| `Panel.qml` | packaged `panels/monitor/Panel.qml` + `patches/panel.qml.patch` |
+| `BarModel.js`, `Model.js`, `widgets/`, `indicators/` | copied verbatim — unmodified here, and re-copying is what keeps them from drifting |
+
+`patches/UPSTREAM` records the Omarchy release the patches were cut against.
+
+See whether anything has drifted, changing nothing:
+
+```sh
+./scripts/rebase-onto-upstream --check
+```
+
+Rebase onto the Omarchy installed on this machine:
+
+```sh
+./scripts/rebase-onto-upstream
+```
+
+It writes to the working tree and stops — no commit, no push, no tag — so the
+diff can be reviewed before release. If a patch no longer applies it says so and
+leaves the repository untouched, rather than producing a half-rebased tree.
+
+**Users do not need any of this.** They get the rebased plugin through a normal
+`omarchy plugin update`. The script exists so that keeping up with a new Omarchy
+release is one command and a review, instead of a hand-merge.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). `./scripts/check` runs the repository

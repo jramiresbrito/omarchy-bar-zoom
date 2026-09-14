@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+#
+# Rebase this plugin onto the Omarchy currently installed on this machine.
+#
+# The plugin is a fork of two built-ins, so every Omarchy release risks leaving
+# it running code that upstream has since changed. Rather than re-merging by
+# hand, the fork is expressed as two small patches over the packaged sources,
+# and this regenerates the vendored files from whatever Omarchy is installed:
+#
+#   Bar.qml    = <packaged bar>/Bar.qml     + patches/bar.qml.patch
+#   Panel.qml  = <packaged monitor>/Panel.qml + patches/panel.qml.patch
+#
+#   BarModel.js, Model.js, widgets/, indicators/
+#              = copied verbatim; this plugin does not modify them, and
+#                re-copying is what stops them drifting out of date
+#
+# It changes the working tree and nothing else: no commit, no push, no tag.
+# Review the diff, run the checks, then release as usual.
+#
+# Usage:
+#   ./scripts/rebase-onto-upstream          rebase onto the installed Omarchy
+#   ./scripts/rebase-onto-upstream --check  report drift, change nothing
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+OMARCHY_ROOT=${OMARCHY_PATH:-/usr/share/omarchy}
+BAR="$OMARCHY_ROOT/shell/plugins/bar"
+MON="$OMARCHY_ROOT/shell/plugins/panels/monitor"
+
+CHECK_ONLY=0
+[[ ${1:-} == --check ]] && CHECK_ONLY=1
+
+fail() { echo "rebase-onto-upstream: $*" >&2; exit 1; }
+note() { echo "  $*"; }
+
+[[ -d $BAR ]] || fail "packaged bar not found at $BAR"
+[[ -d $MON ]] || fail "packaged monitor panel not found at $MON"
+
+installed=$(omarchy version 2>/dev/null || echo "unknown")
+recorded=$(sed -n 's/^omarchy //p' patches/UPSTREAM 2>/dev/null || echo "unknown")
+
+echo "upstream"
+note "installed : omarchy $installed"
+note "patched against : omarchy $recorded"
+
+if [[ $CHECK_ONLY == 1 ]]; then
+  echo "drift"
+  for pair in "Bar.qml:$BAR/Bar.qml" "Panel.qml:$MON/Panel.qml"; do
+    ours=${pair%%:*}; theirs=${pair#*:}
+    base=$(basename "$ours" .qml)
+    patchfile="patches/${base,,}.qml.patch"
+    [[ -f $patchfile ]] || patchfile="patches/$(echo "$ours" | tr 'A-Z' 'a-z').patch"
+    tmp=$(mktemp); cp "$theirs" "$tmp"
+    if patch -s -p0 --forward -i "$patchfile" "$tmp" 2>/dev/null; then
+      if diff -q "$tmp" "$ours" >/dev/null; then
+        note "$ours : up to date"
+      else
+        note "$ours : OUT OF DATE — upstream changed; rerun without --check"
+      fi
+    else
+      note "$ours : PATCH NO LONGER APPLIES — needs a hand re-merge"
+    fi
+    rm -f "$tmp"
+  done
+  for f in BarModel.js; do
+    diff -q "$BAR/$f" "$f" >/dev/null 2>&1 && note "$f : up to date" || note "$f : OUT OF DATE"
+  done
+  for f in Model.js; do
+    diff -q "$MON/$f" "$f" >/dev/null 2>&1 && note "$f : up to date" || note "$f : OUT OF DATE"
+  done
+  diff -rq "$BAR/widgets" widgets >/dev/null 2>&1 && note "widgets/ : up to date" || note "widgets/ : OUT OF DATE"
+  diff -rq "$BAR/indicators" indicators >/dev/null 2>&1 && note "indicators/ : up to date" || note "indicators/ : OUT OF DATE"
+  exit 0
+fi
+
+# Rebuild in a scratch tree first: a patch that no longer applies must not be
+# allowed to leave the repository half-rebased.
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+cp "$BAR/Bar.qml"   "$TMP/Bar.qml"
+cp "$MON/Panel.qml" "$TMP/Panel.qml"
+
+echo "patching"
+patch -s -p0 --forward -i patches/bar.qml.patch "$TMP/Bar.qml" \
+  || fail "patches/bar.qml.patch no longer applies to omarchy $installed's Bar.qml. Re-merge it by hand against the new file; nothing has been changed."
+note "Bar.qml"
+patch -s -p0 --forward -i patches/panel.qml.patch "$TMP/Panel.qml" \
+  || fail "patches/panel.qml.patch no longer applies to omarchy $installed's Panel.qml. Re-merge it by hand against the new file; nothing has been changed."
+note "Panel.qml"
+
+echo "copying verbatim"
+cp "$TMP/Bar.qml" Bar.qml
+cp "$TMP/Panel.qml" Panel.qml
+cp "$BAR/BarModel.js" BarModel.js; note "BarModel.js"
+cp "$MON/Model.js"    Model.js;    note "Model.js"
+rm -rf widgets indicators
+cp -r "$BAR/widgets" widgets;       note "widgets/"
+cp -r "$BAR/indicators" indicators; note "indicators/"
+
+printf 'omarchy %s\n' "$installed" > patches/UPSTREAM
+
+echo "checks"
+omarchy plugin validate . >/dev/null && note "manifest valid"
+./scripts/check >/dev/null && note "repository checks pass"
+
+echo
+echo "Rebased onto omarchy $installed. Nothing has been committed — review first:"
+echo
+git diff --stat
+echo
+echo "If Bar.qml or Panel.qml picked up upstream changes, re-cut the patches so"
+echo "they stay minimal:"
+echo "  diff -u --label Bar.qml --label Bar.qml $BAR/Bar.qml Bar.qml > patches/bar.qml.patch"
+echo "  diff -u --label Panel.qml --label Panel.qml $MON/Panel.qml Panel.qml > patches/panel.qml.patch"

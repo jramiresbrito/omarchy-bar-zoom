@@ -1,0 +1,231 @@
+--- Panel.qml
++++ Panel.qml
+@@ -42,6 +42,17 @@
+   // Mouse hover on a target updates root state via the components' `hovered`
+   // signal so keyboard cursor and pointer share one highlight.
+   readonly property var scalePresets: ["1", "1.25", "1.6", "2", "3", "4"]
++
++  // Bar zoom for the focused monitor. Style's font tokens are a singleton, so
++  // the bar plugin magnifies its whole panel per screen instead; these are the
++  // factors bar-zoom writes into shell.json as bar.scaleByMonitor.
++  readonly property var barZoomValues: ["1", "1.2", "1.4", "1.6", "1.8", "2"]
++  property real barZoom: 1.0
++
++  // The helpers ship with the plugin, so resolve them relative to this file
++  // instead of depending on anything being on the user's PATH.
++  readonly property string barZoomBin: String(Qt.resolvedUrl("bin/bar-zoom")).replace(/^file:\/\//, "")
++  readonly property string monitorScaleBin: String(Qt.resolvedUrl("bin/monitor-scale")).replace(/^file:\/\//, "")
+   readonly property var scaleValues: {
+     for (var i = 0; i < displays.length; i++) {
+       var display = displays[i]
+@@ -77,6 +88,7 @@
+     if (brightnessAvailable) list.push("brightness")
+     list.push("textsize")
+     list.push("scale")
++    list.push("barzoom")
+     if (displays.length > 1) list.push("monitors")
+     return list
+   }
+@@ -85,13 +97,14 @@
+     if (section === "brightness") return 0  // only the slider sentinel at -1
+     if (section === "textsize") return 0    // slider sentinel at -1, like brightness
+     if (section === "scale") return scaleValues.length
++    if (section === "barzoom") return barZoomValues.length
+     if (section === "monitors") return displays.length
+     return 0
+   }
+ 
+   function sectionIsSingleRow(section) {
+     // brightness and text size are lone sliders; scale presets sit horizontally.
+-    return section === "brightness" || section === "textsize" || section === "scale"
++    return section === "brightness" || section === "textsize" || section === "scale" || section === "barzoom"
+   }
+ 
+   function sectionFirstIndex(section) {
+@@ -133,7 +146,7 @@
+   // because adjustBrightness handles horizontal motion on the brightness
+   // slider.
+   function moveCursorH(delta) {
+-    if (focusSection !== "scale") return
++    if (focusSection !== "scale" && focusSection !== "barzoom") return
+     var next = selectedIndex + delta
+     if (next < 0) next = 0
+     if (next > scaleValues.length - 1) next = scaleValues.length - 1
+@@ -151,6 +164,10 @@
+       setScale(scaleValues[selectedIndex])
+       return
+     }
++    if (focusSection === "barzoom" && selectedIndex >= 0 && selectedIndex < barZoomValues.length) {
++      setBarZoom(barZoomValues[selectedIndex])
++      return
++    }
+     if (focusSection === "monitors" && selectedIndex >= 0 && selectedIndex < displays.length) {
+       var d = displays[selectedIndex]
+       if (d) toggleDisplay(d.name, d.enabled)
+@@ -231,6 +248,22 @@
+ 
+   function refresh() {
+     if (!stateProc.running) stateProc.running = true
++    if (!barZoomProc.running) barZoomProc.running = true
++  }
++
++  // bar-zoom writes shell.json, which the shell watches, so the bar resizes on
++  // its own; this only refreshes which pill reads as active.
++  function setBarZoom(value) {
++    barZoomActionProc.command = [root.barZoomBin, String(value)]
++    if (!barZoomActionProc.running) barZoomActionProc.running = true
++  }
++
++  function activeBarZoomIndex() {
++    var best = 0
++    for (var i = 0; i < barZoomValues.length; i++) {
++      if (Math.abs(parseFloat(barZoomValues[i]) - root.barZoom) < 0.001) best = i
++    }
++    return best
+   }
+ 
+   function setBrightness(value) {
+@@ -304,8 +337,13 @@
+     if (!actionProc.running) actionProc.running = true
+   }
+ 
++  // monitor-scale writes the scale onto the focused output's own rule in
++  // monitors.lua, so a per-monitor scale survives a reload the way BAR SIZE
++  // does. On a stock monitors.lua it hands back to Omarchy's own command, so
++  // this row behaves exactly as before for anyone who has not split their
++  // config into per-output rules.
+   function setScale(scale) {
+-    actionProc.command = ["bash", "-c", "omarchy-hyprland-monitor-scaling " + scale]
++    actionProc.command = [root.monitorScaleBin, String(scale)]
+     if (!actionProc.running) actionProc.running = true
+   }
+ 
+@@ -430,6 +468,26 @@
+   }
+ 
+   Process {
++    id: barZoomActionProc
++    stdout: StdioCollector { waitForEnd: true }
++    onRunningChanged: if (!running) root.refresh()
++  }
++
++  Process {
++    id: barZoomProc
++    command: ["bash", "-c",
++      "jq -r --arg m \"$(hyprctl -j monitors | jq -r '.[]|select(.focused)|.name')\" " +
++      "'.bar.scaleByMonitor[$m] // 1' \"$HOME/.config/omarchy/shell.json\""]
++    stdout: StdioCollector {
++      waitForEnd: true
++      onStreamFinished: {
++        var v = parseFloat(String(text).trim())
++        root.barZoom = isFinite(v) && v > 0 ? v : 1.0
++      }
++    }
++  }
++
++  Process {
+     id: actionProc
+     stdout: StdioCollector { waitForEnd: true }
+     onRunningChanged: if (!running) root.refresh()
+@@ -790,6 +848,69 @@
+             }
+           }
+ 
++          // ---------- Bar size ----------
++          PanelSeparator {
++            foreground: root.bar.foreground
++          }
++
++          Column {
++            width: parent.width
++            spacing: Style.spacing.sm
++
++            Item {
++              width: parent.width
++              implicitHeight: Math.max(barZoomHeader.implicitHeight, barZoomMonitor.implicitHeight)
++
++              PanelSectionHeader {
++                id: barZoomHeader
++                text: "BAR SIZE"
++                foreground: root.bar.foreground
++                fontFamily: root.bar.fontFamily
++                anchors.left: parent.left
++                anchors.verticalCenter: parent.verticalCenter
++              }
++
++              // Like SCALE, this applies to the focused monitor only.
++              Text {
++                id: barZoomMonitor
++                textFormat: Text.PlainText
++                text: root.focusedMonitor
++                visible: root.focusedMonitor !== "" && root.enabledDisplayCount > 1
++                color: Qt.darker(root.bar.foreground, 1.4)
++                font.family: root.bar.fontFamily
++                font.pixelSize: Style.font.caption
++                font.bold: true
++                anchors.right: parent.right
++                anchors.rightMargin: Style.space(6)
++                anchors.verticalCenter: parent.verticalCenter
++              }
++            }
++
++            Grid {
++              id: barZoomRow
++              width: parent.width
++              columns: root.barZoomValues.length
++              spacing: Style.spacing.xs
++
++              readonly property real cellWidth: root.barZoomValues.length > 0
++                ? (width - spacing * (columns - 1)) / columns
++                : 0
++
++              Repeater {
++                model: root.barZoomValues
++
++                BarZoomPill {
++                  required property string modelData
++                  required property int index
++
++                  zoomValue: modelData
++                  zoomIndex: index
++                  width: barZoomRow.cellWidth
++                }
++              }
++            }
++          }
++
+           // ---------- Monitors ----------
+           PanelSeparator {
+             visible: root.displays.length > 1
+@@ -855,6 +976,31 @@
+     }
+   }
+ 
++  component BarZoomPill: Button {
++    id: zoomPill
++    required property string zoomValue
++    required property int zoomIndex
++
++    text: zoomValue + "x"
++    fontSize: Style.font.caption
++    foreground: root.bar.foreground
++    fontFamily: root.bar.fontFamily
++    horizontalPadding: Style.spacing.sm
++    verticalPadding: Style.spacing.controlPaddingY
++    bordered: true
++
++    active: root.activeBarZoomIndex() === zoomIndex
++    hasCursor: root.cursorActive && root.focusSection === "barzoom" && root.selectedIndex === zoomIndex
++
++    onClicked: root.setBarZoom(zoomValue)
++    onHovered: function(isHovered) {
++      if (!isHovered || root.reflowingText) return
++      root.cursorActive = true
++      root.focusSection = "barzoom"
++      root.selectedIndex = zoomPill.zoomIndex
++    }
++  }
++
+   component MonitorRow: CursorSurface {
+     id: monitorRow
+     required property var display

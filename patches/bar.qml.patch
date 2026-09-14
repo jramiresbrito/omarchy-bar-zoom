@@ -1,0 +1,63 @@
+--- Bar.qml
++++ Bar.qml
+@@ -555,6 +555,23 @@
+   readonly property bool vertical: position === "left" || position === "right"
+   readonly property int barSize: vertical ? Style.bar.sizeVertical : Style.bar.sizeHorizontal
+ 
++  // Per-monitor bar zoom, read from shell.json as bar.scaleByMonitor, e.g.
++  //   "scaleByMonitor": { "eDP-1": 1.4 }
++  // Style is a singleton, so its font tokens are one value for the whole
++  // desktop and cannot differ per screen. Each BarPanel is its own window with
++  // its own screen though, so the panel lays the bar out at its natural size
++  // and then scales the result -- which magnifies the text and icons rather
++  // than only adding padding around them.
++  function barScaleFor(screen) {
++    var name = screen && screen.name ? String(screen.name) : ""
++    var map = Util.isPlainObject(barConfig) ? barConfig.scaleByMonitor : null
++    if (map && name && map[name] !== undefined) {
++      var value = parseFloat(map[name])
++      if (isFinite(value) && value > 0) return value
++    }
++    return 1.0
++  }
++
+   function normalizePosition(value) {
+     return BarModel.normalizePosition(value)
+   }
+@@ -1261,13 +1278,26 @@
+       right: root.position === "right" || !root.vertical
+     }
+ 
+-    implicitWidth: root.vertical ? root.barSize : 0
+-    implicitHeight: root.vertical ? 0 : root.barSize
++    readonly property real contentScale: root.barScaleFor(barWindow.screen)
++
++    implicitWidth: root.vertical ? Math.round(root.barSize * barWindow.contentScale) : 0
++    implicitHeight: root.vertical ? 0 : Math.round(root.barSize * barWindow.contentScale)
+     color: root.transparent ? "transparent" : root.background
+     surfaceFormat.opaque: false
+     WlrLayershell.namespace: "omarchy-bar"
+     WlrLayershell.layer: WlrLayer.Top
+ 
++    Item {
++      // The bar is laid out at its natural size inside this item and the whole
++      // item is then scaled, so every glyph and icon grows with it. Scaling
++      // from the top-left keeps the surface pinned to the screen edge.
++      width: barWindow.width / barWindow.contentScale
++      height: barWindow.height / barWindow.contentScale
++      transform: Scale {
++        xScale: barWindow.contentScale
++        yScale: barWindow.contentScale
++      }
++
+     Loader {
+       anchors.fill: parent
+       sourceComponent: root.vertical ? verticalBar : horizontalBar
+@@ -1282,6 +1312,7 @@
+         Component.onDestruction: if (hovered) root.setBarHovered(false)
+       }
+     }
++    }
+ 
+     PopupWindow {
+       id: tooltipWindow
